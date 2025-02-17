@@ -1,12 +1,15 @@
 import uuid
 from collections.abc import Generator
-from unittest.mock import ANY
+from time import sleep
 
 import pytest
-from clickhouse_connect.driver import Client
+from clickhouse_connect.driver.client import Client
 from django.conf import settings
 
-from users.use_cases import CreateUser, CreateUserRequest, UserCreated
+from users.dtos.user import CreateUserRequest
+from users.models import UserCreatedMessage, UserCreatedMessageStatus
+from users.tasks import check_user_message_buffer
+from users.use_cases import CreateUser
 
 pytestmark = [pytest.mark.django_db]
 
@@ -55,14 +58,63 @@ def test_event_log_entry_published(
     )
 
     f_use_case.execute(request)
-    log = f_ch_client.query("SELECT * FROM default.event_log WHERE event_type = 'user_created'")
 
-    assert log.result_rows == [
-        (
-            'user_created',
-            ANY,
-            'Local',
-            UserCreated(email=email, first_name='Test', last_name='Testovich').model_dump_json(),
-            1,
-        ),
-    ]
+    message = UserCreatedMessage.objects.filter(user__email=email).first()
+
+    assert message is not None
+    assert message.status == UserCreatedMessageStatus.PENDING
+
+
+@pytest.mark.slow
+def test_message_buffer_query_sent(
+    f_use_case: CreateUser,
+    f_ch_client: Client,
+) -> None:
+    random_emails = (f"test_{uuid.uuid4()}@email.com" for _ in range(1000))
+
+    num_queries = f_ch_client.query(
+        """SELECT query FROM system.query_log
+        WHERE (
+                type = 'QueryFinish'
+                OR type = 'QueryStart'
+            )
+            AND has(databases, 'default')
+            AND has(tables, 'default.event_log')
+            AND lower(query) LIKE 'insert%'
+        ORDER BY event_time DESC
+        """,
+    )
+
+    num_queries_pre_test = num_queries.result_rows
+
+    for email in random_emails:
+        request = CreateUserRequest(
+            email=email,
+            first_name="Test",
+            last_name="Testovich",
+        )
+
+        f_use_case.execute(request=request)
+
+    check_user_message_buffer()
+
+    sleep(6)  # sleeping due to caching issues - otherwise the query below won't show new inserts
+    num_queries = f_ch_client.query(
+        """SELECT query FROM system.query_log
+        WHERE (
+                type = 'QueryFinish'
+                OR type = 'QueryStart'
+            )
+            AND has(databases, 'default')
+            AND has(tables, 'default.event_log')
+            AND lower(query) LIKE 'insert%'
+        ORDER BY event_time DESC
+        """,
+    )
+
+    num_queries_post_test = num_queries.result_rows
+
+    assert len(num_queries_post_test) - len(num_queries_pre_test) == 2
+
+    log = f_ch_client.query("SELECT * FROM default.event_log WHERE event_type = 'user_created'")
+    assert len(log.result_rows) == 1000
