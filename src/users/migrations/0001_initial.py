@@ -27,6 +27,7 @@ class Migration(migrations.Migration):
                 ('last_name', models.CharField(blank=True, max_length=255, null=True)),
             ],
             options={
+                'app_label': 'users',
                 'verbose_name': 'User',
                 'verbose_name_plural': 'Users',
                 'abstract': False,

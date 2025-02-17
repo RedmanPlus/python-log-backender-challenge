@@ -3,11 +3,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-import clickhouse_connect
 import structlog
+from clickhouse_connect import get_client
+from clickhouse_connect.driver.client import Client
 from clickhouse_connect.driver.exceptions import DatabaseError
+from clickhouse_connect.driver.types import Matrix
 from django.conf import settings
 from django.utils import timezone
+from result import Err, Ok, Result
 
 from core.base_model import Model
 
@@ -22,13 +25,13 @@ EVENT_LOG_COLUMNS = [
 
 
 class EventLogClient:
-    def __init__(self, client: clickhouse_connect.driver.Client) -> None:
+    def __init__(self, client: Client) -> None:
         self._client = client
 
     @classmethod
     @contextmanager
     def init(cls) -> Generator['EventLogClient']:
-        client = clickhouse_connect.get_client(
+        client = get_client(
             host=settings.CLICKHOUSE_HOST,
             port=settings.CLICKHOUSE_PORT,
             user=settings.CLICKHOUSE_USER,
@@ -47,25 +50,27 @@ class EventLogClient:
     def insert(
         self,
         data: list[Model],
-    ) -> None:
+    ) -> Result[int, DatabaseError]:
         try:
-            self._client.insert(
+            summary = self._client.insert(
                 data=self._convert_data(data),
                 column_names=EVENT_LOG_COLUMNS,
                 database=settings.CLICKHOUSE_SCHEMA,
                 table=settings.CLICKHOUSE_EVENT_LOG_TABLE_NAME,
             )
+            return Ok(summary.written_rows)
         except DatabaseError as e:
             logger.error('unable to insert data to clickhouse', error=str(e))
+            return Err(e)
 
-    def query(self, query: str) -> Any:  # noqa: ANN401
+    def query(self, query: str) -> Result[Matrix, DatabaseError]:  # noqa: ANN401
         logger.debug('executing clickhouse query', query=query)
 
         try:
-            return self._client.query(query).result_rows
+            return Ok(self._client.query(query).result_rows)
         except DatabaseError as e:
             logger.error('failed to execute clickhouse query', error=str(e))
-            return
+            return Err(e)
 
     def _convert_data(self, data: list[Model]) -> list[tuple[Any]]:
         return [

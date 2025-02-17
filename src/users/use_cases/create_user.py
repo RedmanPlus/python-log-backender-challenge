@@ -1,34 +1,17 @@
 from typing import Any
 
 import structlog
+from result import Err, Ok
 
-from core.base_model import Model
-from core.event_log_client import EventLogClient
-from core.use_case import UseCase, UseCaseRequest, UseCaseResponse
-from users.models import User
+from core.use_case import UseCase
+from users.dtos.user import CreateUserRequest, CreateUserResponse
+from users.services.user import create_user, create_user_created_message
 
 logger = structlog.get_logger(__name__)
 
 
-class UserCreated(Model):
-    email: str
-    first_name: str
-    last_name: str
-
-
-class CreateUserRequest(UseCaseRequest):
-    email: str
-    first_name: str = ''
-    last_name: str = ''
-
-
-class CreateUserResponse(UseCaseResponse):
-    result: User | None = None
-    error: str = ''
-
-
 class CreateUser(UseCase):
-    def _get_context_vars(self, request: UseCaseRequest) -> dict[str, Any]:
+    def _get_context_vars(self, request: CreateUserRequest) -> dict[str, Any]:
         return {
             'email': request.email,
             'first_name': request.first_name,
@@ -38,30 +21,18 @@ class CreateUser(UseCase):
     def _execute(self, request: CreateUserRequest) -> CreateUserResponse:
         logger.info('creating a new user')
 
-        user, created = User.objects.get_or_create(
+        user_result = create_user(
             email=request.email,
-            defaults={
-                'first_name': request.first_name, 'last_name': request.last_name,
-            },
+            first_name=request.first_name,
+            last_name=request.last_name,
         )
 
-        if created:
-            logger.info('user has been created')
-            self._log(user)
-            return CreateUserResponse(result=user)
-
-        logger.error('unable to create a new user')
-        return CreateUserResponse(error='User with this email already exists')
-
-    def _log(self, user: User) -> None:
-        with EventLogClient.init() as client:
-            client.insert(
-                data=[
-                    UserCreated(
-                        email=user.email,
-                        first_name=user.first_name,
-                        last_name=user.last_name,
-                    ),
-                ],
-            )
+        match user_result:
+            case Ok(user):
+                logger.info('user has been created')
+                create_user_created_message(user=user)
+                return CreateUserResponse(result=user)
+            case Err(msg):
+                logger.error('unable to create a new user')
+                return CreateUserResponse(error=msg)
 

@@ -1,5 +1,7 @@
 run:
 	docker compose up
+build:
+	docker compose build
 install:
 	make migrations
 	make migrate
@@ -15,4 +17,6 @@ shell:
 lint:
 	docker compose run --rm app ruff check --fix
 test:
-	docker compose run --rm app pytest -svv
+	docker compose run --rm app pytest -svv -m "not slow"
+test_slow:
+	docker compose run --rm app pytest -svv -m "slow"

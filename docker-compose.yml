@@ -15,6 +15,17 @@ services:
       - app_media_files:/srv/app/media:rw
       - .:/srv/app
 
+  celery:
+    build: .
+    restart: always
+    depends_on:
+      - app
+      - db
+      - clickhouse
+    command: [ "celery", "-A", "src.core.celery", "beat", "--loglevel=info" ]
+    volumes:
+      - .:/srv/app
+
   db:
     tty: true
     image: postgres:16-alpine

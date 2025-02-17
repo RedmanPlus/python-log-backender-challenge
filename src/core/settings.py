@@ -29,7 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # project apps
-    'users',
+    'users.apps.UsersConfig',
 ]
 
 MIDDLEWARE = [
@@ -112,6 +112,19 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CELERY_BROKER = env("CELERY_BROKER", default="redis://localhost:6379/0")
 CELERY_ALWAYS_EAGER = env("CELERY_ALWAYS_EAGER", default=DEBUG)
+CELERY_MAX_RETRIES = env("CELERY_MAX_RETRIES", default=5)
+CELERY_RATE_LIMIT = env("CELERY_RATE_LIMIT", default="30/m")
+
+CELERY_BEAT_CONFIG = {
+    "check-message-buffer": {
+        "task": "",
+        "schedule": 60,
+        "args": (),
+    },
+}
+CELERY_BEAT_TIMEZONE = "UTC"
+
+MESSAGE_BUFFER_LEN = env("MESSAGE_BUFFER_LEN", default=1000)
 
 LOG_FORMATTER = env("LOG_FORMATTER", default="console")
 LOG_LEVEL = env("LOG_LEVEL", default="INFO")
@@ -184,3 +197,5 @@ if SENTRY_SETTINGS.get("dsn") and not DEBUG:
         ],
         default_integrations=False,
     )
+
+AUTH_USER_MODEL = 'users.User'

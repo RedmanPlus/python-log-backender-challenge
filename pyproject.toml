@@ -6,6 +6,9 @@ env = [
 ]
 python_files = "*_tests.py tests/test_*.py"
 addopts = "-vrs -r fE --tb=short --reuse-db --no-migrations --disable-warnings -p no:warnings"
+markers = [
+    "slow: takes a long time to run, therefore better to exclude from the main test run"
+]
 
 [tool.ruff]
 line-length = 120
